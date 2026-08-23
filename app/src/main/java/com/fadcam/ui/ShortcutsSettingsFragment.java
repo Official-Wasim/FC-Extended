@@ -1070,14 +1070,23 @@ public class ShortcutsSettingsFragment extends Fragment {
         String current = SharedPreferencesManager.getInstance(requireContext()).getQsTileMode();
         String resultKey = "qs_tile_mode_result";
 
-        getParentFragmentManager().setFragmentResultListener(resultKey, getViewLifecycleOwner(), (k, b) -> {
+        getParentFragmentManager().setFragmentResultListener(resultKey, this, (k, b) -> {
             if (b.containsKey(PickerBottomSheetFragment.BUNDLE_SELECTED_ID)) {
                 String selectedId = b.getString(PickerBottomSheetFragment.BUNDLE_SELECTED_ID);
                 if (selectedId != null) {
-                    SharedPreferencesManager.getInstance(requireContext()).setQsTileMode(selectedId);
-                    RecordingTileService.applyTileMode(requireContext(), selectedId);
-                    refreshQsTileModeUI(getView());
-                    requestAddQsTile();
+                    Context ctx = getContext();
+                    if (ctx != null) {
+                        SharedPreferencesManager.getInstance(ctx).setQsTileMode(selectedId);
+                        RecordingTileService.applyTileMode(ctx, selectedId);
+                    }
+                    if (getView() != null) {
+                        refreshQsTileModeUI(getView());
+                    }
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        if (isAdded() && getContext() != null) {
+                            requestAddQsTile();
+                        }
+                    }, 200L);
                 }
             }
         });
@@ -1113,31 +1122,35 @@ public class ShortcutsSettingsFragment extends Fragment {
         items.add(new OptionItem("dual", getString(R.string.shortcut_start_dual), null, null, R.drawable.ic_qs_tile_videocam_dual, R.drawable.ic_open_in_new));
 
         String resultKey = "add_dedicated_tile_result";
-        getParentFragmentManager().setFragmentResultListener(resultKey, getViewLifecycleOwner(), (k, b) -> {
+        getParentFragmentManager().setFragmentResultListener(resultKey, this, (k, b) -> {
             if (b.containsKey(PickerBottomSheetFragment.BUNDLE_SELECTED_ID)) {
                 String id = b.getString(PickerBottomSheetFragment.BUNDLE_SELECTED_ID);
+                final Class<?> targetClass;
+                final String targetLabel;
+                final int targetIcon;
                 if ("front".equals(id)) {
-                    RecordingTileService.requestAddTileToShade(
-                            requireContext(),
-                            RecordingTileService.Front.class,
-                            getString(R.string.shortcut_start_front),
-                            R.drawable.ic_qs_tile_videocam_front
-                    );
+                    targetClass = RecordingTileService.Front.class;
+                    targetLabel = getString(R.string.shortcut_start_front);
+                    targetIcon = R.drawable.ic_qs_tile_videocam_front;
                 } else if ("dual".equals(id)) {
-                    RecordingTileService.requestAddTileToShade(
-                            requireContext(),
-                            RecordingTileService.Dual.class,
-                            getString(R.string.shortcut_start_dual),
-                            R.drawable.ic_qs_tile_videocam_dual
-                    );
+                    targetClass = RecordingTileService.Dual.class;
+                    targetLabel = getString(R.string.shortcut_start_dual);
+                    targetIcon = R.drawable.ic_qs_tile_videocam_dual;
                 } else {
-                    RecordingTileService.requestAddTileToShade(
-                            requireContext(),
-                            RecordingTileService.Back.class,
-                            getString(R.string.shortcut_start_back),
-                            R.drawable.ic_qs_tile_videocam_back
-                    );
+                    targetClass = RecordingTileService.Back.class;
+                    targetLabel = getString(R.string.shortcut_start_back);
+                    targetIcon = R.drawable.ic_qs_tile_videocam_back;
                 }
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (isAdded() && getContext() != null) {
+                        RecordingTileService.requestAddTileToShade(
+                                requireContext(),
+                                targetClass,
+                                targetLabel,
+                                targetIcon
+                        );
+                    }
+                }, 200L);
             }
         });
 

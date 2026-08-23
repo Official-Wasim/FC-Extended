@@ -1596,6 +1596,7 @@ public class DualCameraRecordingService extends Service {
         releaseAllResources();
         prefs.setRecordingInProgress(false);
         releaseWakeLock();
+        broadcastAction(Constants.BROADCAST_ON_DUAL_RECORDING_STOPPED);
         com.fadcam.services.RecordingTileService.requestTileRefresh(this);
         stopSelf();
     }

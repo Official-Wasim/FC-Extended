@@ -21,6 +21,7 @@ import com.fadcam.RecordingStopActivity;
 import com.fadcam.SharedPreferencesManager;
 import com.fadcam.dualcam.service.DualCameraRecordingService;
 import com.fadcam.utils.ServiceUtils;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 /**
  * RecordingTileService: Quick Settings Tile for start/stop recording control.
@@ -43,6 +44,7 @@ public class RecordingTileService extends TileService {
     // Handler on main looper for processing double-tap gesture delays
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BroadcastReceiver stateReceiver;
+    private BroadcastReceiver localStateReceiver;
     private long lastClickAt = 0L;
     private Runnable clickRunnable;
     private Runnable restoreActiveStateRunnable;
@@ -81,11 +83,12 @@ public class RecordingTileService extends TileService {
         if (dedicated != null) {
             // Dedicated tiles trigger start/stop directly without double-tap delay
             SharedPreferencesManager prefs = SharedPreferencesManager.getInstance(this);
-            boolean currentRecording = prefs.isRecordingInProgress();
-            FLog.i(TAG, "Dedicated tile (" + dedicated + ") clicked. Recording state: " + currentRecording);
-            if (currentRecording) {
+            boolean thisTileActive = isTileActive(prefs);
+            boolean hasActiveSession = hasActiveRecordingSession(prefs);
+            FLog.i(TAG, "Dedicated tile (" + dedicated + ") clicked. Active: " + thisTileActive + ", hasSession: " + hasActiveSession);
+            if (thisTileActive) {
                 stopRecording();
-            } else {
+            } else if (!hasActiveSession) {
                 startRecording();
             }
             return;
@@ -354,37 +357,70 @@ public class RecordingTileService extends TileService {
     }
 
     private void registerStateReceiver() {
-        if (stateReceiver != null) return;
-        stateReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                FLog.d(TAG, "State receiver received action: " + intent.getAction() + ". Refreshing tile.");
-                refreshTile();
+        if (stateReceiver == null) {
+            stateReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    FLog.d(TAG, "State receiver received action: " + intent.getAction() + ". Refreshing tile.");
+                    refreshTile();
+                }
+            };
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(Constants.BROADCAST_ON_RECORDING_STARTED);
+            filter.addAction(Constants.BROADCAST_ON_RECORDING_STOPPED);
+            filter.addAction(Constants.BROADCAST_ON_RECORDING_PAUSED);
+            filter.addAction(Constants.BROADCAST_ON_RECORDING_RESUMED);
+            filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STARTED);
+            filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STOPPED);
+            filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_PAUSED);
+            filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_RESUMED);
+            filter.addAction(Constants.BROADCAST_ON_DUAL_CAMERAS_SWAPPED);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(stateReceiver, filter);
             }
-        };
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Constants.BROADCAST_ON_RECORDING_STARTED);
-        filter.addAction(Constants.BROADCAST_ON_RECORDING_STOPPED);
-        filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STARTED);
-        filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STOPPED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(stateReceiver, filter);
+        }
+
+        if (localStateReceiver == null) {
+            localStateReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    FLog.d(TAG, "Local state receiver received action: " + intent.getAction() + ". Refreshing tile.");
+                    refreshTile();
+                }
+            };
+            IntentFilter localFilter = new IntentFilter();
+            localFilter.addAction(Constants.BROADCAST_ON_CAMERA_SWITCH_COMPLETE);
+            LocalBroadcastManager.getInstance(this).registerReceiver(localStateReceiver, localFilter);
         }
     }
 
     private void unregisterStateReceiver() {
-        if (stateReceiver == null) return;
-        try {
-            unregisterReceiver(stateReceiver);
-        } catch (IllegalArgumentException ignored) {
+        if (stateReceiver != null) {
+            try {
+                unregisterReceiver(stateReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            stateReceiver = null;
         }
-        stateReceiver = null;
+        if (localStateReceiver != null) {
+            try {
+                LocalBroadcastManager.getInstance(this).unregisterReceiver(localStateReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            localStateReceiver = null;
+        }
+    }
+
+    private boolean hasActiveRecordingSession(SharedPreferencesManager prefs) {
+        return prefs.isRecordingInProgress()
+                || ServiceUtils.isServiceRunning(this, RecordingService.class)
+                || ServiceUtils.isServiceRunning(this, DualCameraRecordingService.class);
     }
 
     private boolean isTileActive(SharedPreferencesManager prefs) {
-        if (!prefs.isRecordingInProgress()) {
+        if (!hasActiveRecordingSession(prefs)) {
             return false;
         }
         CameraType dedicated = getDedicatedMode();
@@ -393,13 +429,13 @@ public class RecordingTileService extends TileService {
             return true;
         }
         boolean isDualRunning = ServiceUtils.isServiceRunning(this, DualCameraRecordingService.class);
-        CameraType activeCamera = prefs.getCameraSelection();
         if (dedicated == CameraType.DUAL_PIP) {
-            return isDualRunning || (activeCamera != null && activeCamera.isDual());
+            return isDualRunning;
         }
         if (isDualRunning) {
             return false;
         }
+        CameraType activeCamera = prefs.getCameraSelection();
         return activeCamera == dedicated;
     }
 
