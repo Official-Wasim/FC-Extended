@@ -19,6 +19,8 @@ import com.fadcam.R;
 import com.fadcam.RecordingStartActivity;
 import com.fadcam.RecordingStopActivity;
 import com.fadcam.SharedPreferencesManager;
+import com.fadcam.dualcam.service.DualCameraRecordingService;
+import com.fadcam.utils.ServiceUtils;
 
 /**
  * RecordingTileService: Quick Settings Tile for start/stop recording control.
@@ -341,9 +343,10 @@ public class RecordingTileService extends TileService {
         restoreActiveStateRunnable = new Runnable() {
             @Override
             public void run() {
-                boolean recording = SharedPreferencesManager.getInstance(RecordingTileService.this).isRecordingInProgress();
-                FLog.d(TAG, "Reverting switching feedback. Active recording status: " + recording);
-                setTileState(recording);
+                SharedPreferencesManager prefs = SharedPreferencesManager.getInstance(RecordingTileService.this);
+                boolean active = isTileActive(prefs);
+                FLog.d(TAG, "Reverting switching feedback. Active status: " + active);
+                setTileState(active);
                 restoreActiveStateRunnable = null;
             }
         };
@@ -380,10 +383,31 @@ public class RecordingTileService extends TileService {
         stateReceiver = null;
     }
 
+    private boolean isTileActive(SharedPreferencesManager prefs) {
+        if (!prefs.isRecordingInProgress()) {
+            return false;
+        }
+        CameraType dedicated = getDedicatedMode();
+        if (dedicated == null) {
+            // Universal tile reflects any recording state
+            return true;
+        }
+        boolean isDualRunning = ServiceUtils.isServiceRunning(this, DualCameraRecordingService.class);
+        CameraType activeCamera = prefs.getCameraSelection();
+        if (dedicated == CameraType.DUAL_PIP) {
+            return isDualRunning || (activeCamera != null && activeCamera.isDual());
+        }
+        if (isDualRunning) {
+            return false;
+        }
+        return activeCamera == dedicated;
+    }
+
     private void refreshTile() {
-        boolean recording = SharedPreferencesManager.getInstance(this).isRecordingInProgress();
-        FLog.d(TAG, "refreshTile - Active recording: " + recording);
-        setTileState(recording);
+        SharedPreferencesManager prefs = SharedPreferencesManager.getInstance(this);
+        boolean active = isTileActive(prefs);
+        FLog.d(TAG, "refreshTile - Active status for tile (" + getDedicatedMode() + "): " + active);
+        setTileState(active);
     }
 
     private void setTileState(boolean active) {
