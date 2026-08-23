@@ -196,6 +196,34 @@ public class RecordingTileService extends TileService {
         }
     }
 
+    /**
+     * Prompts the system on Android 13+ (API 33+) to add the tile directly to the Quick Settings shade.
+     */
+    public static void requestAddTileToShade(Context context, Class<?> tileClass, CharSequence label, int iconRes) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            android.app.StatusBarManager statusBarManager = context.getSystemService(android.app.StatusBarManager.class);
+            if (statusBarManager != null) {
+                android.content.ComponentName componentName = new android.content.ComponentName(context, tileClass);
+                android.graphics.drawable.Icon icon = android.graphics.drawable.Icon.createWithResource(context, iconRes);
+                statusBarManager.requestAddTileService(
+                        componentName,
+                        label,
+                        icon,
+                        context.getMainExecutor(),
+                        resultCode -> {
+                            if (resultCode == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
+                                android.widget.Toast.makeText(context, R.string.qs_tile_already_added, android.widget.Toast.LENGTH_SHORT).show();
+                            } else if (resultCode == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                                android.widget.Toast.makeText(context, R.string.qs_tile_added_success, android.widget.Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                );
+                return;
+            }
+        }
+        android.widget.Toast.makeText(context, R.string.qs_tile_manual_add_instructions, android.widget.Toast.LENGTH_LONG).show();
+    }
+
     private void startRecording() {
         CameraType dedicated = getDedicatedMode();
         FLog.i(TAG, "Launching RecordingStartActivity to start recording safely (dedicated: " + dedicated + ")");

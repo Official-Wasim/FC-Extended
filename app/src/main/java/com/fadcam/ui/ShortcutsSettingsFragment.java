@@ -142,6 +142,10 @@ public class ShortcutsSettingsFragment extends Fragment {
         if (qsTileRow != null) {
             qsTileRow.setOnClickListener(v -> showQsTileModePicker());
         }
+        View qsTileAddRow = view.findViewById(R.id.row_qs_tile_add);
+        if (qsTileAddRow != null) {
+            qsTileAddRow.setOnClickListener(v -> requestAddQsTile());
+        }
         refreshQsTileModeUI(view);
 
         // Initialize preview with current preferences
@@ -1073,6 +1077,7 @@ public class ShortcutsSettingsFragment extends Fragment {
                     SharedPreferencesManager.getInstance(requireContext()).setQsTileMode(selectedId);
                     RecordingTileService.applyTileMode(requireContext(), selectedId);
                     refreshQsTileModeUI(getView());
+                    requestAddQsTile();
                 }
             }
         });
@@ -1085,5 +1090,67 @@ public class ShortcutsSettingsFragment extends Fragment {
                 getString(R.string.qs_tile_mode_helper)
         );
         sheet.show(getParentFragmentManager(), "qs_tile_mode_sheet");
+    }
+
+    private void requestAddQsTile() {
+        String mode = SharedPreferencesManager.getInstance(requireContext()).getQsTileMode();
+        if (Constants.QS_TILE_MODE_SEPARATE.equals(mode)) {
+            showAddDedicatedTilePicker();
+        } else {
+            RecordingTileService.requestAddTileToShade(
+                    requireContext(),
+                    RecordingTileService.class,
+                    getString(R.string.shortcut_start_back),
+                    R.drawable.ic_qs_tile_videocam_back
+            );
+        }
+    }
+
+    private void showAddDedicatedTilePicker() {
+        java.util.ArrayList<OptionItem> items = new java.util.ArrayList<>();
+        items.add(new OptionItem("back", getString(R.string.shortcut_start_back), null, null, R.drawable.ic_qs_tile_videocam_back, R.drawable.ic_open_in_new));
+        items.add(new OptionItem("front", getString(R.string.shortcut_start_front), null, null, R.drawable.ic_qs_tile_videocam_front, R.drawable.ic_open_in_new));
+        items.add(new OptionItem("dual", getString(R.string.shortcut_start_dual), null, null, R.drawable.ic_qs_tile_videocam_dual, R.drawable.ic_open_in_new));
+
+        String resultKey = "add_dedicated_tile_result";
+        getParentFragmentManager().setFragmentResultListener(resultKey, getViewLifecycleOwner(), (k, b) -> {
+            if (b.containsKey(PickerBottomSheetFragment.BUNDLE_SELECTED_ID)) {
+                String id = b.getString(PickerBottomSheetFragment.BUNDLE_SELECTED_ID);
+                if ("front".equals(id)) {
+                    RecordingTileService.requestAddTileToShade(
+                            requireContext(),
+                            RecordingTileService.Front.class,
+                            getString(R.string.shortcut_start_front),
+                            R.drawable.ic_qs_tile_videocam_front
+                    );
+                } else if ("dual".equals(id)) {
+                    RecordingTileService.requestAddTileToShade(
+                            requireContext(),
+                            RecordingTileService.Dual.class,
+                            getString(R.string.shortcut_start_dual),
+                            R.drawable.ic_qs_tile_videocam_dual
+                    );
+                } else {
+                    RecordingTileService.requestAddTileToShade(
+                            requireContext(),
+                            RecordingTileService.Back.class,
+                            getString(R.string.shortcut_start_back),
+                            R.drawable.ic_qs_tile_videocam_back
+                    );
+                }
+            }
+        });
+
+        PickerBottomSheetFragment sheet = PickerBottomSheetFragment.newInstance(
+                getString(R.string.qs_tile_add_to_qs_title),
+                items,
+                null,
+                resultKey,
+                getString(R.string.qs_tile_add_to_qs_desc)
+        );
+        if (sheet.getArguments() != null) {
+            sheet.getArguments().putBoolean(PickerBottomSheetFragment.ARG_HIDE_CHECK, true);
+        }
+        sheet.show(getParentFragmentManager(), "add_dedicated_tile_sheet");
     }
 }
