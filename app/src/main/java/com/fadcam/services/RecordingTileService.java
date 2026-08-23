@@ -194,7 +194,22 @@ public class RecordingTileService extends TileService {
             FLog.w(TAG, "switchCamera ignored: camera switching is not supported during active Dual recording");
             return;
         }
-        CameraType target = (current == CameraType.FRONT) ? CameraType.BACK : CameraType.FRONT;
+
+        CameraType target;
+        if (recording) {
+            // Live switch during active single-camera recording toggles between front and back
+            target = (current == CameraType.FRONT) ? CameraType.BACK : CameraType.FRONT;
+        } else {
+            // Idle switch: cycle BACK -> FRONT -> DUAL_PIP -> BACK
+            if (current == CameraType.BACK) {
+                target = CameraType.FRONT;
+            } else if (current == CameraType.FRONT) {
+                target = CameraType.DUAL_PIP;
+            } else {
+                target = CameraType.BACK;
+            }
+        }
+
         FLog.i(TAG, "switchCamera requested: " + current + " -> " + target + " (Recording active: " + recording + ")");
 
         // Only switch live if recording is active and we are in a single-camera mode
@@ -206,7 +221,7 @@ public class RecordingTileService extends TileService {
             startService(switchIntent);
             showSwitchingFeedback(target);
         } else {
-            // Idle switch (or during dual-recording): Save selection to preferences immediately
+            // Idle switch: Save selection to preferences immediately
             prefs.sharedPreferences.edit()
                     .putString(Constants.PREF_CAMERA_SELECTION, target.name())
                     .apply();
@@ -223,6 +238,9 @@ public class RecordingTileService extends TileService {
         if (target == CameraType.FRONT) {
             tile.setLabel(getString(R.string.front));
             tile.setIcon(Icon.createWithResource(this, R.drawable.ic_qs_tile_videocam_front));
+        } else if (target == CameraType.DUAL_PIP) {
+            tile.setLabel(getString(R.string.shortcut_start_dual));
+            tile.setIcon(Icon.createWithResource(this, R.drawable.ic_qs_tile_videocam_dual));
         } else {
             tile.setLabel(getString(R.string.back));
             tile.setIcon(Icon.createWithResource(this, R.drawable.ic_qs_tile_videocam_back));
@@ -256,6 +274,8 @@ public class RecordingTileService extends TileService {
         IntentFilter filter = new IntentFilter();
         filter.addAction(Constants.BROADCAST_ON_RECORDING_STARTED);
         filter.addAction(Constants.BROADCAST_ON_RECORDING_STOPPED);
+        filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STARTED);
+        filter.addAction(Constants.BROADCAST_ON_DUAL_RECORDING_STOPPED);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
