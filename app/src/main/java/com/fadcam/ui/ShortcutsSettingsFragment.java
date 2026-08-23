@@ -23,9 +23,14 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.fragment.app.Fragment;
 
+import com.fadcam.Constants;
 import com.fadcam.R;
+import com.fadcam.SharedPreferencesManager;
+import com.fadcam.services.RecordingTileService;
 import com.fadcam.shortcuts.ShortcutsManager;
 import com.fadcam.shortcuts.ShortcutsPreferences;
+import com.fadcam.ui.picker.OptionItem;
+import com.fadcam.ui.picker.PickerBottomSheetFragment;
 
 import org.json.JSONObject;
 
@@ -131,6 +136,13 @@ public class ShortcutsSettingsFragment extends Fragment {
         View.OnClickListener widgetClick = v -> showClockWidgetSheet();
         if (widgetCell != null)
             widgetCell.setOnClickListener(widgetClick);
+
+        // Quick Settings Tile mode row
+        View qsTileRow = view.findViewById(R.id.row_qs_tile_mode);
+        if (qsTileRow != null) {
+            qsTileRow.setOnClickListener(v -> showQsTileModePicker());
+        }
+        refreshQsTileModeUI(view);
 
         // Initialize preview with current preferences
         updatePreview();
@@ -1027,5 +1039,51 @@ public class ShortcutsSettingsFragment extends Fragment {
             android.widget.Toast.makeText(ctx, R.string.widgets_pin_unsupported, android.widget.Toast.LENGTH_LONG)
                     .show();
         }
+    }
+
+    private void refreshQsTileModeUI(View root) {
+        if (root == null) return;
+        TextView valueView = root.findViewById(R.id.value_qs_tile_mode);
+        String mode = SharedPreferencesManager.getInstance(requireContext()).getQsTileMode();
+        boolean isSeparate = Constants.QS_TILE_MODE_SEPARATE.equals(mode);
+
+        if (valueView != null) {
+            valueView.setText(isSeparate ? R.string.qs_tile_mode_separate : R.string.qs_tile_mode_universal);
+        }
+    }
+
+    private void showQsTileModePicker() {
+        java.util.ArrayList<OptionItem> items = new java.util.ArrayList<>();
+        items.add(new OptionItem(
+                Constants.QS_TILE_MODE_UNIVERSAL,
+                getString(R.string.qs_tile_mode_universal_title),
+                getString(R.string.qs_tile_mode_universal_desc)));
+        items.add(new OptionItem(
+                Constants.QS_TILE_MODE_SEPARATE,
+                getString(R.string.qs_tile_mode_separate_title),
+                getString(R.string.qs_tile_mode_separate_desc)));
+
+        String current = SharedPreferencesManager.getInstance(requireContext()).getQsTileMode();
+        String resultKey = "qs_tile_mode_result";
+
+        getParentFragmentManager().setFragmentResultListener(resultKey, getViewLifecycleOwner(), (k, b) -> {
+            if (b.containsKey(PickerBottomSheetFragment.BUNDLE_SELECTED_ID)) {
+                String selectedId = b.getString(PickerBottomSheetFragment.BUNDLE_SELECTED_ID);
+                if (selectedId != null) {
+                    SharedPreferencesManager.getInstance(requireContext()).setQsTileMode(selectedId);
+                    RecordingTileService.applyTileMode(requireContext(), selectedId);
+                    refreshQsTileModeUI(getView());
+                }
+            }
+        });
+
+        PickerBottomSheetFragment sheet = PickerBottomSheetFragment.newInstance(
+                getString(R.string.qs_tile_mode_picker_title),
+                items,
+                current,
+                resultKey,
+                getString(R.string.qs_tile_mode_helper)
+        );
+        sheet.show(getParentFragmentManager(), "qs_tile_mode_sheet");
     }
 }

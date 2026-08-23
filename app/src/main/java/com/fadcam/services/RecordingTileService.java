@@ -67,9 +67,28 @@ public class RecordingTileService extends TileService {
         cleanupPendingCallbacks();
     }
 
+    protected CameraType getDedicatedMode() {
+        return null;
+    }
+
     @Override
     public void onClick() {
         super.onClick();
+
+        CameraType dedicated = getDedicatedMode();
+        if (dedicated != null) {
+            // Dedicated tiles trigger start/stop directly without double-tap delay
+            SharedPreferencesManager prefs = SharedPreferencesManager.getInstance(this);
+            boolean currentRecording = prefs.isRecordingInProgress();
+            FLog.i(TAG, "Dedicated tile (" + dedicated + ") clicked. Recording state: " + currentRecording);
+            if (currentRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+            return;
+        }
+
         long now = System.currentTimeMillis();
         boolean isDoubleTap = (now - lastClickAt) <= DOUBLE_TAP_WINDOW_MS;
         lastClickAt = now;
@@ -125,30 +144,71 @@ public class RecordingTileService extends TileService {
     }
 
     /**
-     * Requests that SystemUI bring this tile into the listening state so a
+     * Requests that SystemUI bring active tiles into the listening state so a
      * pending state change is applied IMMEDIATELY, even when the tile isn't
-     * currently visible/listening. Called by RecordingService on every
-     * start/stop transition. Available from Android 13 (Tiramisu); on older
-     * versions the tile refreshes through onStartListening when the shade
-     * opens. The system may throttle or delay the request — the guaranteed
-     * fallback remains the onStartListening refresh.
+     * currently visible/listening. Called on start/stop transitions.
      */
     public static void requestTileRefresh(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestListeningStateFor(context, RecordingTileService.class);
+            requestListeningStateFor(context, Back.class);
+            requestListeningStateFor(context, Front.class);
+            requestListeningStateFor(context, Dual.class);
+        }
+    }
+
+    private static void requestListeningStateFor(Context context, Class<?> serviceClass) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
                 TileService.requestListeningState(
                         context,
-                        new android.content.ComponentName(context, RecordingTileService.class));
+                        new android.content.ComponentName(context, serviceClass));
             } catch (Exception e) {
-                FLog.w(TAG, "requestListeningState failed", e);
+                FLog.w(TAG, "requestListeningState failed for " + serviceClass.getSimpleName(), e);
             }
         }
     }
 
+    /**
+     * Enables or disables Quick Settings tile components based on selected mode.
+     */
+    public static void applyTileMode(Context context, String mode) {
+        android.content.pm.PackageManager pm = context.getPackageManager();
+        boolean separate = Constants.QS_TILE_MODE_SEPARATE.equals(mode);
+
+        setComponentEnabled(pm, context, RecordingTileService.class, !separate);
+        setComponentEnabled(pm, context, Back.class, separate);
+        setComponentEnabled(pm, context, Front.class, separate);
+        setComponentEnabled(pm, context, Dual.class, separate);
+
+        requestTileRefresh(context);
+    }
+
+    private static void setComponentEnabled(android.content.pm.PackageManager pm, Context context, Class<?> cls, boolean enabled) {
+        try {
+            android.content.ComponentName component = new android.content.ComponentName(context, cls);
+            int newState = enabled
+                    ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            pm.setComponentEnabledSetting(component, newState, android.content.pm.PackageManager.DONT_KILL_APP);
+        } catch (Exception e) {
+            FLog.e(TAG, "Error updating component enabled state for " + cls.getSimpleName(), e);
+        }
+    }
+
     private void startRecording() {
-        FLog.i(TAG, "Launching RecordingStartActivity to start recording safely");
+        CameraType dedicated = getDedicatedMode();
+        FLog.i(TAG, "Launching RecordingStartActivity to start recording safely (dedicated: " + dedicated + ")");
         Intent intent = new Intent(this, RecordingStartActivity.class);
-        intent.putExtra(RecordingStartActivity.EXTRA_SHORTCUT_CAMERA_MODE, RecordingStartActivity.CAMERA_MODE_CURRENT);
+        if (dedicated == CameraType.BACK) {
+            intent.putExtra(RecordingStartActivity.EXTRA_SHORTCUT_CAMERA_MODE, RecordingStartActivity.CAMERA_MODE_BACK);
+        } else if (dedicated == CameraType.FRONT) {
+            intent.putExtra(RecordingStartActivity.EXTRA_SHORTCUT_CAMERA_MODE, RecordingStartActivity.CAMERA_MODE_FRONT);
+        } else if (dedicated == CameraType.DUAL_PIP) {
+            intent.putExtra(RecordingStartActivity.EXTRA_SHORTCUT_CAMERA_MODE, RecordingStartActivity.CAMERA_MODE_DUAL);
+        } else {
+            intent.putExtra(RecordingStartActivity.EXTRA_SHORTCUT_CAMERA_MODE, RecordingStartActivity.CAMERA_MODE_CURRENT);
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         launchActivitySafely(intent);
     }
@@ -309,7 +369,9 @@ public class RecordingTileService extends TileService {
             tile.setLabel(getString(R.string.stop_recording));
             tile.setIcon(Icon.createWithResource(this, R.drawable.ic_qs_tile_stop));
         } else {
-            CameraType camera = SharedPreferencesManager.getInstance(this).getCameraSelection();
+            CameraType camera = getDedicatedMode() != null
+                    ? getDedicatedMode()
+                    : SharedPreferencesManager.getInstance(this).getCameraSelection();
             if (camera == CameraType.FRONT) {
                 tile.setLabel(getString(R.string.shortcut_start_front));
                 tile.setIcon(Icon.createWithResource(this, R.drawable.ic_qs_tile_videocam_front));
@@ -341,5 +403,31 @@ public class RecordingTileService extends TileService {
     private void cleanupPendingCallbacks() {
         cancelClickRunnable();
         cancelRestoreRunnable();
+    }
+
+    // ── Dedicated Sub-Tiles (reusing all base logic) ──
+
+    /** Dedicated Back Camera Quick Settings Tile */
+    public static class Back extends RecordingTileService {
+        @Override
+        protected CameraType getDedicatedMode() {
+            return CameraType.BACK;
+        }
+    }
+
+    /** Dedicated Front Camera Quick Settings Tile */
+    public static class Front extends RecordingTileService {
+        @Override
+        protected CameraType getDedicatedMode() {
+            return CameraType.FRONT;
+        }
+    }
+
+    /** Dedicated Dual PiP Camera Quick Settings Tile */
+    public static class Dual extends RecordingTileService {
+        @Override
+        protected CameraType getDedicatedMode() {
+            return CameraType.DUAL_PIP;
+        }
     }
 }
